@@ -1,0 +1,19 @@
+# .cargo/config.toml
+# ESP32-S3 使用 Xtensa LX7 核心
+# 需要 espup 安裝的 xtensa-esp32s3-espidf toolchain
+
+[build]
+target = "xtensa-esp32s3-espidf"
+
+[target.xtensa-esp32s3-espidf]
+linker = "ldproxy"                    # ESP-IDF link wrapper
+runner = "espflash flash --monitor"   # cargo run 時自動 flash
+
+[env]
+# esp-idf-sys 需要知道 ESP-IDF 版本
+ESP_IDF_VERSION = "v5.2.3"
+# 如果你用 espup 安裝的 ESP-IDF，路徑通常是：
+# ESP_IDF_SDKCONFIG_DEFAULTS = "sdkconfig.defaults"
+
+[unstable]
+build-std = ["std", "panic_abort"]    # Rust std for ESP-IDF

@@ -1,0 +1,26 @@
+[package]
+name = "esp32-lcd-test"
+version = "0.1.0"
+edition = "2021"
+resolver = "2"
+
+[[bin]]
+name = "esp32-lcd-test"
+harness = false
+
+[dependencies]
+# ESP-IDF HAL — 直接操作硬件，不走 Arduino
+esp-idf-svc = { version = "0.51", features = ["binstart"] }
+esp-idf-hal = "0.45"
+esp-idf-sys = { version = "0.36", features = ["binstart"] }
+log = "0.4"
+
+[build-dependencies]
+embuild = { version = "0.33", features = ["espidf"] }
+
+[profile.release]
+opt-level = "s"   # 最小 binary size
+
+[profile.dev]
+opt-level = "s"   # dev 也縮，flash 空間省著用
+debug = true

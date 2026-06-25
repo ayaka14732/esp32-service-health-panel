@@ -1,0 +1,15 @@
+# ESP-IDF SDK configuration
+# 這個檔案會被 esp-idf-sys 的 build script 讀取
+
+# 增加主任務 stack，Rust 需要
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+# SPI flash
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
+
+# 不需要 Bluetooth，省 RAM
+CONFIG_BT_ENABLED=n
+
+# Log level（debug 階段用 Info，正式可改 Warn）
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
