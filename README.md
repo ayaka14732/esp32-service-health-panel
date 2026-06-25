@@ -66,12 +66,39 @@ source ~/export-esp.sh
 # Build（第一次很慢，要編 ESP-IDF）
 cargo build --release
 
-# Flash + 開 serial monitor
+# Flash app + 開 serial monitor
+# 若 bootloader 已經在板子上，平常用這個即可
 cargo run --release
 
-# 或分開操作：
+# 或分開操作，只更新 app：
 cargo build --release
-espflash flash target/xtensa-esp32s3-espidf/release/esp32-lcd-test --monitor
+espflash flash --flash-mode dout --flash-freq 20mhz --flash-size 16mb \
+  target/xtensa-esp32s3-espidf/release/esp32-lcd-test --monitor
+```
+
+本板子的 embedded flash 使用 DIO/40 MHz 會在 ROM 階段出現
+`Invalid image block, can't boot.`。`sdkconfig.defaults` 已固定為 DOUT/20 MHz。
+
+如果剛 erase flash、換板子、或再次看到 bootloader 錯誤，請先完整寫入
+bootloader、partition table 和 app：
+
+```bash
+source ~/export-esp.sh
+cargo build --release
+
+PROJECT_DIR=$PWD
+IDF_BUILD_DIR=$(
+  find target/xtensa-esp32s3-espidf/release/build -path '*/out/build/flash_args' \
+    -printf '%T@ %h\n' | sort -n | tail -1 | cut -d' ' -f2-
+)
+
+sudo espflash flash \
+  --chip esp32s3 --port /dev/ttyACM0 \
+  --flash-mode dout --flash-freq 20mhz --flash-size 16mb \
+  --bootloader "$IDF_BUILD_DIR/bootloader/bootloader.bin" \
+  --partition-table "$PROJECT_DIR/.embuild/espressif/esp-idf/v5.2.3/components/partition_table/partitions_singleapp.csv" \
+  --partition-table-offset 0x8000 \
+  --monitor target/xtensa-esp32s3-espidf/release/esp32-lcd-test
 ```
 
 ---

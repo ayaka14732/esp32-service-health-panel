@@ -6,8 +6,8 @@
 target = "xtensa-esp32s3-espidf"
 
 [target.xtensa-esp32s3-espidf]
-linker = "ldproxy"                    # ESP-IDF link wrapper
-runner = "espflash flash --monitor"   # cargo run 時自動 flash
+linker = "ldproxy" # ESP-IDF link wrapper
+runner = "espflash flash --flash-mode dout --flash-freq 20mhz --flash-size 16mb --monitor"
 
 [env]
 # esp-idf-sys 需要知道 ESP-IDF 版本
