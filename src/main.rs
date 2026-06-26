@@ -195,8 +195,8 @@ impl<'d> St7789<'d> {
             persian_status::TITLE_X,
             persian_status::TITLE_Y,
             &persian_status::TITLE,
-            BLUE,
             WHITE,
+            BLUE,
         );
     }
 
