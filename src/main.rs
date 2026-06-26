@@ -200,7 +200,7 @@ impl<'d> St7789<'d> {
         );
     }
 
-    fn draw_status_screen(&mut self, results: [bool; 3]) {
+    fn draw_status_screen(&mut self, results: [bool; 4]) {
         self.fill_screen(WHITE);
         self.draw_alpha_bitmap(
             persian_status::TITLE_X,
@@ -486,9 +486,12 @@ fn main() {
     let railway_ok = wifi.is_some() && health::railway::ok();
     let ipinfo_ok = wifi.is_some() && health::ipinfo::ok();
     let graphviz_ok = wifi.is_some() && health::graphviz::ok();
+    let polaris_ok = wifi.is_some() && health::polaris::ok();
 
-    log::info!("Display status: railway={railway_ok}, ipinfo={ipinfo_ok}, graphviz={graphviz_ok}");
-    lcd.draw_status_screen([railway_ok, ipinfo_ok, graphviz_ok]);
+    log::info!(
+        "Display status: railway={railway_ok}, ipinfo={ipinfo_ok}, graphviz={graphviz_ok}, polaris={polaris_ok}"
+    );
+    lcd.draw_status_screen([railway_ok, ipinfo_ok, graphviz_ok, polaris_ok]);
 
     loop {
         FreeRtos::delay_ms(1000);

@@ -22,6 +22,7 @@ ITEMS = [
     ("RAILWAY", "راه\u200cآهن", 34),
     ("IPINFO", "آی\u200cپی", 34),
     ("GRAPHVIZ", "گراف\u200cویز", 34),
+    ("POLARIS", "پولاریس", 34),
 ]
 
 
@@ -126,6 +127,7 @@ def render_rust(bitmaps: list[dict[str, object]]) -> str:
         "// Railway  -> راه‌آهن",
         "// IP info  -> آی‌پی",
         "// Graphviz -> گراف‌ویز",
+        "// Polaris  -> پولاریس",
         "",
         "pub struct AlphaBitmap {",
         "    pub width: u16,",
@@ -168,11 +170,16 @@ def render_rust(bitmaps: list[dict[str, object]]) -> str:
             f"pub const TITLE_X: u16 = {title_x};",
             "pub const TITLE_Y: u16 = 16;",
             "",
-            "pub const STATUS_ITEMS: [StatusItem; 3] = [",
+            "pub const STATUS_ITEMS: [StatusItem; 4] = [",
         ]
     )
 
-    for y, name in [(82, "RAILWAY"), (136, "IPINFO"), (190, "GRAPHVIZ")]:
+    for y, name in [
+        (70, "RAILWAY"),
+        (112, "IPINFO"),
+        (154, "GRAPHVIZ"),
+        (196, "POLARIS"),
+    ]:
         width, height = dimensions[name]
         lines.extend(
             [
@@ -221,7 +228,7 @@ def render_preview(font_path: Path, output: Path) -> None:
         language="fa",
     )
 
-    for y, item, font in zip([82, 136, 190], ITEMS, item_fonts):
+    for y, item, font in zip([70, 112, 154, 196], ITEMS, item_fonts):
         text = item[1]
         draw.ellipse((174, y - 12, 198, y + 12), fill=(0, 180, 60))
         bbox = draw.textbbox((0, 0), text, font=font, direction="rtl", language="fa")
