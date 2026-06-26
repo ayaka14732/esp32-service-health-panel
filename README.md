@@ -98,15 +98,17 @@ espflash flash --flash-mode dout --flash-freq 20mhz --flash-size 16mb \
   target/xtensa-esp32s3-espidf/release/esp32-lcd-test --monitor
 ```
 
-連線成功後 serial monitor 會顯示 `Wi-Fi connected` 與 DHCP IP 資訊，接著會檢查 API：
+連線成功後 serial monitor 會顯示 `Wi-Fi connected` 與 DHCP IP 資訊，接著會檢查兩個 endpoint：
 
 ```text
 https://uk-railway-journey-recorder-api.shn.hk/api/health
+https://ipinfo.shn.hk/
 ```
 
-只有 API 回傳 HTTP 200 且 body 是 `{"status":"ok"}` 時，LCD 才會顯示純綠色。
-若 Wi-Fi 登錄失敗、沒有設定 SSID、HTTPS 請求失敗、或 API 回應不是 `{"status":"ok"}`，
-LCD 都會顯示純紅色。
+第一個 endpoint 必須回傳 HTTP 200 且 body 是 `{"status":"ok"}`。
+第二個 endpoint 必須回傳 HTTP 200 且 response 第一個字符是數字。
+只有兩個 health check 都成功時，LCD 才會顯示純綠色。若 Wi-Fi 登錄失敗、沒有設定 SSID、
+HTTPS 請求失敗、或任一 health check 不符合條件，LCD 都會顯示純紅色。
 因為 `.env` 內容會編譯進韌體，改 SSID / password 後請重新 `cargo run --release`。
 
 本板子的 embedded flash 使用 DIO/40 MHz 會在 ROM 階段出現
@@ -139,8 +141,8 @@ sudo espflash flash \
 ## 屏幕狀態
 
 開機後只顯示 API health check 結果：
-1. **純綠色** → Wi-Fi 登錄成功，且 API health check 回傳 `{"status":"ok"}`
-2. **純紅色** → Wi-Fi 或 API health check 任一步失敗
+1. **純綠色** → Wi-Fi 登錄成功，且兩個 API health check 都通過
+2. **純紅色** → Wi-Fi 或任一 API health check 失敗
 
 ---
 

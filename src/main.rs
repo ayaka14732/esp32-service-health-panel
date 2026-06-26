@@ -11,10 +11,9 @@
 //   LCD CS   -> GPIO8   (Chip Select)
 //   LCD BL   -> 3V3     (背光，常亮)
 
-use embedded_svc::{
-    http::{client::Client as HttpClient, Method},
-    utils::io,
-};
+mod ipinfo_health;
+mod railway_health;
+
 use esp_idf_hal::{
     delay::FreeRtos,
     gpio::{Gpio10, Gpio12, Gpio8, Gpio9, Output, PinDriver},
@@ -27,7 +26,6 @@ use esp_idf_hal::{
 };
 use esp_idf_svc::{
     eventloop::EspSystemEventLoop,
-    http::client::{Configuration as HttpConfiguration, EspHttpConnection},
     nvs::EspDefaultNvsPartition,
     sntp::{EspSntp, SyncStatus},
     wifi::{
@@ -60,8 +58,6 @@ const LCD_H: u16 = 240;
 
 const WIFI_SSID: Option<&str> = option_env!("WIFI_SSID");
 const WIFI_PASS: Option<&str> = option_env!("WIFI_PASS");
-const HEALTH_URL: &str = "https://uk-railway-journey-recorder-api.shn.hk/api/health";
-const HEALTH_OK_BODY: &str = r#"{"status":"ok"}"#;
 
 // ───────────────────────────────────────────────
 // ST7789 驅動結構體
@@ -268,9 +264,6 @@ fn connect_wifi(
     Err(last_err.unwrap())
 }
 
-// ───────────────────────────────────────────────
-// API health check
-// ───────────────────────────────────────────────
 fn start_sntp() -> Option<EspSntp<'static>> {
     match EspSntp::new_default() {
         Ok(sntp) => {
@@ -291,43 +284,6 @@ fn start_sntp() -> Option<EspSntp<'static>> {
             None
         }
     }
-}
-
-fn api_health_ok() -> bool {
-    match check_api_health() {
-        Ok(true) => true,
-        Ok(false) => {
-            log::error!("API health check failed");
-            false
-        }
-        Err(err) => {
-            log::error!("API health check error: {err:?}");
-            false
-        }
-    }
-}
-
-fn check_api_health() -> Result<bool, Box<dyn std::error::Error>> {
-    let http_config = HttpConfiguration {
-        crt_bundle_attach: Some(esp_idf_svc::sys::esp_crt_bundle_attach),
-        timeout: Some(core::time::Duration::from_secs(10)),
-        ..Default::default()
-    };
-    let mut client = HttpClient::wrap(EspHttpConnection::new(&http_config)?);
-
-    let headers = [("accept", "application/json")];
-    let request = client.request(Method::Get, HEALTH_URL, &headers)?;
-    log::info!("API health check: GET {HEALTH_URL}");
-    let mut response = request.submit()?;
-
-    let status = response.status();
-    let mut buf = [0u8; 128];
-    let bytes_read = io::try_read_full(&mut response, &mut buf).map_err(|e| e.0)?;
-    let body = core::str::from_utf8(&buf[..bytes_read])?.trim();
-
-    log::info!("API health check response: status={status}, body={body:?}");
-
-    Ok(status == 200 && body == HEALTH_OK_BODY)
 }
 
 // ───────────────────────────────────────────────
@@ -383,13 +339,15 @@ fn main() {
     // 保留 wifi 句柄，避免連線成功後 Wi-Fi driver 被 drop 而斷線。
     let wifi = start_wifi(modem);
     let _sntp = if wifi.is_some() { start_sntp() } else { None };
-    let healthy = wifi.is_some() && api_health_ok();
+    let railway_ok = wifi.is_some() && railway_health::ok();
+    let ipinfo_ok = wifi.is_some() && ipinfo_health::ok();
+    let healthy = railway_ok && ipinfo_ok;
 
     if healthy {
-        log::info!("Display status: API healthy");
+        log::info!("Display status: all health checks passed");
         lcd.fill_screen(GREEN);
     } else {
-        log::info!("Display status: API unhealthy");
+        log::info!("Display status: health check failed");
         lcd.fill_screen(RED);
     }
 
