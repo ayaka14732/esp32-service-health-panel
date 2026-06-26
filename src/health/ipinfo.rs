@@ -37,11 +37,19 @@ fn check() -> Result<bool, Box<dyn std::error::Error>> {
     let mut buf = [0u8; 128];
     let bytes_read = io::try_read_full(&mut response, &mut buf).map_err(|e| e.0)?;
     let body = core::str::from_utf8(&buf[..bytes_read])?;
-    let starts_with_digit = buf[..bytes_read]
-        .first()
-        .is_some_and(|byte| byte.is_ascii_digit());
+    // The endpoint returns the client's IP address on the first line (IPv4 or IPv6).
+    let first_line = body.lines().next().unwrap_or("").trim();
+    let first_line_is_ip = is_ip_address(first_line);
 
     log::info!("IP info health check response: status={status}, body={body:?}");
 
-    Ok(status == 200 && starts_with_digit)
+    Ok(status == 200 && first_line_is_ip)
+}
+
+/// Lightweight check: the response line should look like an IPv4 or IPv6 address.
+fn is_ip_address(s: &str) -> bool {
+    !s.is_empty()
+        && (s.contains('.') || s.contains(':'))
+        && s.chars()
+            .all(|c| c.is_ascii_hexdigit() || c == '.' || c == ':')
 }
