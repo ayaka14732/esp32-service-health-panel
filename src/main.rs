@@ -11,6 +11,10 @@
 //   LCD CS   -> GPIO8   (Chip Select)
 //   LCD BL   -> 3V3     (背光，常亮)
 
+use embedded_svc::{
+    http::{client::Client as HttpClient, Method},
+    utils::io,
+};
 use esp_idf_hal::{
     delay::FreeRtos,
     gpio::{Gpio10, Gpio12, Gpio8, Gpio9, Output, PinDriver},
@@ -23,8 +27,12 @@ use esp_idf_hal::{
 };
 use esp_idf_svc::{
     eventloop::EspSystemEventLoop,
+    http::client::{Configuration as HttpConfiguration, EspHttpConnection},
     nvs::EspDefaultNvsPartition,
-    wifi::{AuthMethod, BlockingWifi, ClientConfiguration, Configuration, EspWifi},
+    sntp::{EspSntp, SyncStatus},
+    wifi::{
+        AuthMethod, BlockingWifi, ClientConfiguration, Configuration as WifiConfiguration, EspWifi,
+    },
 };
 use esp_idf_sys as _; // 必須 link ESP-IDF runtime
 
@@ -52,6 +60,8 @@ const LCD_H: u16 = 240;
 
 const WIFI_SSID: Option<&str> = option_env!("WIFI_SSID");
 const WIFI_PASS: Option<&str> = option_env!("WIFI_PASS");
+const HEALTH_URL: &str = "https://uk-railway-journey-recorder-api.shn.hk/api/health";
+const HEALTH_OK_BODY: &str = r#"{"status":"ok"}"#;
 
 // ───────────────────────────────────────────────
 // ST7789 驅動結構體
@@ -220,7 +230,7 @@ fn connect_wifi(
 
     let mut wifi = BlockingWifi::wrap(EspWifi::new(modem, sys_loop.clone(), Some(nvs))?, sys_loop)?;
 
-    let wifi_configuration = Configuration::Client(ClientConfiguration {
+    let wifi_configuration = WifiConfiguration::Client(ClientConfiguration {
         ssid: ssid.try_into().unwrap(),
         bssid: None,
         auth_method: if pass.is_empty() {
@@ -237,13 +247,87 @@ fn connect_wifi(
     wifi.start()?;
     log::info!("Wi-Fi started; connecting to {ssid}");
 
-    wifi.connect()?;
-    wifi.wait_netif_up()?;
+    let mut last_err = None;
+    for attempt in 1..=3 {
+        log::info!("Wi-Fi connect attempt {attempt}/3");
+        match wifi.connect().and_then(|_| wifi.wait_netif_up()) {
+            Ok(()) => {
+                let ip_info = wifi.wifi().sta_netif().get_ip_info()?;
+                log::info!("Wi-Fi connected: {:?}", ip_info);
+                return Ok(wifi);
+            }
+            Err(err) => {
+                log::warn!("Wi-Fi connect attempt {attempt}/3 failed: {err:?}");
+                last_err = Some(err);
+                let _ = wifi.disconnect();
+                FreeRtos::delay_ms(1500);
+            }
+        }
+    }
 
-    let ip_info = wifi.wifi().sta_netif().get_ip_info()?;
-    log::info!("Wi-Fi connected: {:?}", ip_info);
+    Err(last_err.unwrap())
+}
 
-    Ok(wifi)
+// ───────────────────────────────────────────────
+// API health check
+// ───────────────────────────────────────────────
+fn start_sntp() -> Option<EspSntp<'static>> {
+    match EspSntp::new_default() {
+        Ok(sntp) => {
+            log::info!("SNTP started");
+            for _ in 0..20 {
+                if matches!(sntp.get_sync_status(), SyncStatus::Completed) {
+                    log::info!("SNTP time synchronized");
+                    return Some(sntp);
+                }
+                FreeRtos::delay_ms(500);
+            }
+
+            log::warn!("SNTP sync timed out; trying HTTPS health check anyway");
+            Some(sntp)
+        }
+        Err(err) => {
+            log::warn!("SNTP start failed: {err:?}; trying HTTPS health check anyway");
+            None
+        }
+    }
+}
+
+fn api_health_ok() -> bool {
+    match check_api_health() {
+        Ok(true) => true,
+        Ok(false) => {
+            log::error!("API health check failed");
+            false
+        }
+        Err(err) => {
+            log::error!("API health check error: {err:?}");
+            false
+        }
+    }
+}
+
+fn check_api_health() -> Result<bool, Box<dyn std::error::Error>> {
+    let http_config = HttpConfiguration {
+        crt_bundle_attach: Some(esp_idf_svc::sys::esp_crt_bundle_attach),
+        timeout: Some(core::time::Duration::from_secs(10)),
+        ..Default::default()
+    };
+    let mut client = HttpClient::wrap(EspHttpConnection::new(&http_config)?);
+
+    let headers = [("accept", "application/json")];
+    let request = client.request(Method::Get, HEALTH_URL, &headers)?;
+    log::info!("API health check: GET {HEALTH_URL}");
+    let mut response = request.submit()?;
+
+    let status = response.status();
+    let mut buf = [0u8; 128];
+    let bytes_read = io::try_read_full(&mut response, &mut buf).map_err(|e| e.0)?;
+    let body = core::str::from_utf8(&buf[..bytes_read])?.trim();
+
+    log::info!("API health check response: status={status}, body={body:?}");
+
+    Ok(status == 200 && body == HEALTH_OK_BODY)
 }
 
 // ───────────────────────────────────────────────
@@ -298,11 +382,14 @@ fn main() {
     // ── Wi-Fi 登錄 ──
     // 保留 wifi 句柄，避免連線成功後 Wi-Fi driver 被 drop 而斷線。
     let wifi = start_wifi(modem);
-    if wifi.is_some() {
-        log::info!("Display status: Wi-Fi OK");
+    let _sntp = if wifi.is_some() { start_sntp() } else { None };
+    let healthy = wifi.is_some() && api_health_ok();
+
+    if healthy {
+        log::info!("Display status: API healthy");
         lcd.fill_screen(GREEN);
     } else {
-        log::info!("Display status: Wi-Fi failed");
+        log::info!("Display status: API unhealthy");
         lcd.fill_screen(RED);
     }
 

@@ -19,3 +19,7 @@ CONFIG_BT_ENABLED=n
 
 # Log level（debug 階段用 Info，正式可改 Warn）
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+
+# HTTPS health check needs trusted root certificates.
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
