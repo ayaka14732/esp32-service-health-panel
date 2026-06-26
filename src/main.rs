@@ -200,7 +200,8 @@ impl<'d> St7789<'d> {
         );
     }
 
-    fn draw_success_text(&mut self) {
+    fn draw_status_screen(&mut self, results: [bool; 3]) {
+        self.fill_screen(WHITE);
         self.draw_alpha_bitmap(
             persian_status::TITLE_X,
             persian_status::TITLE_Y,
@@ -209,8 +210,9 @@ impl<'d> St7789<'d> {
             WHITE,
         );
 
-        for item in persian_status::STATUS_ITEMS.iter() {
-            self.draw_filled_circle(item.circle_x, item.circle_y, 12, GREEN);
+        for (item, ok) in persian_status::STATUS_ITEMS.iter().zip(results.iter()) {
+            let color = if *ok { GREEN } else { RED };
+            self.draw_filled_circle(item.circle_x, item.circle_y, 12, color);
             self.draw_alpha_bitmap(item.text_x, item.text_y, item.label, BLACK, WHITE);
         }
     }
@@ -484,16 +486,9 @@ fn main() {
     let railway_ok = wifi.is_some() && health::railway::ok();
     let ipinfo_ok = wifi.is_some() && health::ipinfo::ok();
     let graphviz_ok = wifi.is_some() && health::graphviz::ok();
-    let healthy = railway_ok && ipinfo_ok && graphviz_ok;
 
-    if healthy {
-        log::info!("Display status: all health checks passed");
-        lcd.fill_screen(WHITE);
-        lcd.draw_success_text();
-    } else {
-        log::info!("Display status: health check failed");
-        lcd.fill_screen(RED);
-    }
+    log::info!("Display status: railway={railway_ok}, ipinfo={ipinfo_ok}, graphviz={graphviz_ok}");
+    lcd.draw_status_screen([railway_ok, ipinfo_ok, graphviz_ok]);
 
     loop {
         FreeRtos::delay_ms(1000);
