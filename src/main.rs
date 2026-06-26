@@ -11,8 +11,8 @@
 //   LCD CS   -> GPIO8   (Chip Select)
 //   LCD BL   -> 3V3     (背光，常亮)
 
-mod ipinfo_health;
-mod railway_health;
+mod health;
+mod persian_status;
 
 use esp_idf_hal::{
     delay::FreeRtos,
@@ -49,6 +49,8 @@ const ST7789_COLMOD: u8 = 0x3A; // Interface Pixel Format
 const ST7789_MADCTL: u8 = 0x36; // Memory Access Control
 
 // 顏色（RGB565 格式，big-endian）
+const BLACK: u16 = 0x0000;
+const WHITE: u16 = 0xFFFF;
 const RED: u16 = 0xF800;
 const GREEN: u16 = 0x07E0;
 
@@ -185,6 +187,131 @@ impl<'d> St7789<'d> {
         }
         self.cs.set_high().unwrap();
     }
+
+    fn draw_success_text(&mut self) {
+        self.draw_alpha_bitmap(
+            persian_status::TITLE_X,
+            persian_status::TITLE_Y,
+            &persian_status::TITLE,
+            BLACK,
+            WHITE,
+        );
+
+        for item in persian_status::STATUS_ITEMS.iter() {
+            self.draw_filled_circle(item.circle_x, item.circle_y, 12, GREEN);
+            self.draw_alpha_bitmap(item.text_x, item.text_y, item.label, BLACK, WHITE);
+        }
+    }
+
+    fn draw_alpha_bitmap(
+        &mut self,
+        x: u16,
+        y: u16,
+        bitmap: &persian_status::AlphaBitmap,
+        fg: u16,
+        bg: u16,
+    ) {
+        if x >= LCD_W || y >= LCD_H {
+            return;
+        }
+
+        let width = bitmap.width.min(LCD_W - x);
+        let height = bitmap.height.min(LCD_H - y);
+        let mut row_buf = [0u8; 480];
+
+        for row in 0..height {
+            self.set_window(x, y + row, x + width - 1, y + row);
+
+            for col in 0..width {
+                let alpha = bitmap_alpha(bitmap, col, row);
+                let color = blend_rgb565(bg, fg, alpha);
+                let offset = col as usize * 2;
+                row_buf[offset] = (color >> 8) as u8;
+                row_buf[offset + 1] = (color & 0xFF) as u8;
+            }
+
+            self.send_data(&row_buf[..width as usize * 2]);
+        }
+    }
+
+    fn draw_filled_circle(&mut self, cx: u16, cy: u16, radius: u16, color: u16) {
+        let cx = cx as i32;
+        let cy = cy as i32;
+        let radius = radius as i32;
+        let radius_sq = radius * radius;
+
+        for dy in -radius..=radius {
+            let mut dx = radius;
+            while dx * dx + dy * dy > radius_sq {
+                dx -= 1;
+            }
+
+            let x0 = cx - dx;
+            let x1 = cx + dx;
+            let y = cy + dy;
+            self.draw_solid_hline(x0, y, x1 - x0 + 1, color);
+        }
+    }
+
+    fn draw_solid_hline(&mut self, x: i32, y: i32, len: i32, color: u16) {
+        if len <= 0 || y < 0 || y >= LCD_H as i32 {
+            return;
+        }
+
+        let x0 = x.max(0);
+        let x1 = (x + len - 1).min(LCD_W as i32 - 1);
+        if x0 > x1 {
+            return;
+        }
+
+        let width = (x1 - x0 + 1) as u16;
+        self.set_window(x0 as u16, y as u16, x1 as u16, y as u16);
+
+        let hi = (color >> 8) as u8;
+        let lo = (color & 0xFF) as u8;
+        let mut row_buf = [0u8; 480];
+        for offset in (0..width as usize * 2).step_by(2) {
+            row_buf[offset] = hi;
+            row_buf[offset + 1] = lo;
+        }
+
+        self.send_data(&row_buf[..width as usize * 2]);
+    }
+}
+
+fn bitmap_alpha(bitmap: &persian_status::AlphaBitmap, x: u16, y: u16) -> u8 {
+    let index = y as usize * bitmap.width as usize + x as usize;
+    let byte = bitmap.data[index / 2];
+    if index % 2 == 0 {
+        byte >> 4
+    } else {
+        byte & 0x0F
+    }
+}
+
+fn blend_rgb565(bg: u16, fg: u16, alpha: u8) -> u16 {
+    if alpha == 0 {
+        return bg;
+    }
+    if alpha >= 15 {
+        return fg;
+    }
+
+    let alpha = alpha as u16;
+    let inv = 15 - alpha;
+
+    let bg_r = (bg >> 11) & 0x1F;
+    let bg_g = (bg >> 5) & 0x3F;
+    let bg_b = bg & 0x1F;
+    let fg_r = (fg >> 11) & 0x1F;
+    let fg_g = (fg >> 5) & 0x3F;
+    let fg_b = fg & 0x1F;
+
+    let r = (fg_r * alpha + bg_r * inv) / 15;
+    let g = (fg_g * alpha + bg_g * inv) / 15;
+    let b = (fg_b * alpha + bg_b * inv) / 15;
+
+    (r << 11) | (g << 5) | b
 }
 
 // ───────────────────────────────────────────────
@@ -339,13 +466,14 @@ fn main() {
     // 保留 wifi 句柄，避免連線成功後 Wi-Fi driver 被 drop 而斷線。
     let wifi = start_wifi(modem);
     let _sntp = if wifi.is_some() { start_sntp() } else { None };
-    let railway_ok = wifi.is_some() && railway_health::ok();
-    let ipinfo_ok = wifi.is_some() && ipinfo_health::ok();
+    let railway_ok = wifi.is_some() && health::railway::ok();
+    let ipinfo_ok = wifi.is_some() && health::ipinfo::ok();
     let healthy = railway_ok && ipinfo_ok;
 
     if healthy {
         log::info!("Display status: all health checks passed");
-        lcd.fill_screen(GREEN);
+        lcd.fill_screen(WHITE);
+        lcd.draw_success_text();
     } else {
         log::info!("Display status: health check failed");
         lcd.fill_screen(RED);

@@ -141,8 +141,14 @@ sudo espflash flash \
 ## 屏幕狀態
 
 開機後只顯示 API health check 結果：
-1. **純綠色** → Wi-Fi 登錄成功，且兩個 API health check 都通過
+1. **白底 + 置中波斯語標題 + 右側綠色圓點狀態列** → Wi-Fi 登錄成功，且兩個 API health check 都通過
 2. **純紅色** → Wi-Fi 或任一 API health check 失敗
+
+成功畫面上的波斯語狀態文字為預渲染 bitmap：
+1. 置中標題：`وضعیت سلامت`
+2. `وای‌فای` + 右側綠色圓點
+3. `راه‌آهن` + 右側綠色圓點
+4. `آی‌پی` + 右側綠色圓點
 
 ---
 
