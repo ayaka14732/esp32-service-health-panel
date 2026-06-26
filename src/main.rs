@@ -14,11 +14,17 @@
 use esp_idf_hal::{
     delay::FreeRtos,
     gpio::{Gpio10, Gpio12, Gpio8, Gpio9, Output, PinDriver},
+    modem::Modem,
     prelude::*,
     spi::{
         config::{Config as SpiConfig, Mode, Phase, Polarity},
         Dma, SpiBusDriver, SpiDriver,
     },
+};
+use esp_idf_svc::{
+    eventloop::EspSystemEventLoop,
+    nvs::EspDefaultNvsPartition,
+    wifi::{AuthMethod, BlockingWifi, ClientConfiguration, Configuration, EspWifi},
 };
 use esp_idf_sys as _; // 必須 link ESP-IDF runtime
 
@@ -37,18 +43,15 @@ const ST7789_COLMOD: u8 = 0x3A; // Interface Pixel Format
 const ST7789_MADCTL: u8 = 0x36; // Memory Access Control
 
 // 顏色（RGB565 格式，big-endian）
-const BLACK: u16 = 0x0000;
-const WHITE: u16 = 0xFFFF;
 const RED: u16 = 0xF800;
 const GREEN: u16 = 0x07E0;
-const BLUE: u16 = 0x001F;
-const YELLOW: u16 = 0xFFE0;
-const CYAN: u16 = 0x07FF;
-const MAGENTA: u16 = 0xF81F;
 
 // 屏幕尺寸
 const LCD_W: u16 = 240;
 const LCD_H: u16 = 240;
+
+const WIFI_SSID: Option<&str> = option_env!("WIFI_SSID");
+const WIFI_PASS: Option<&str> = option_env!("WIFI_PASS");
 
 // ───────────────────────────────────────────────
 // ST7789 驅動結構體
@@ -176,141 +179,71 @@ impl<'d> St7789<'d> {
         }
         self.cs.set_high().unwrap();
     }
+}
 
-    /// 畫一個填充矩形
-    fn fill_rect(&mut self, x: u16, y: u16, w: u16, h: u16, color: u16) {
-        if x >= LCD_W || y >= LCD_H {
-            return;
-        }
-        let x1 = (x + w - 1).min(LCD_W - 1);
-        let y1 = (y + h - 1).min(LCD_H - 1);
-        self.set_window(x, y, x1, y1);
+// ───────────────────────────────────────────────
+// Wi-Fi
+// ───────────────────────────────────────────────
+fn start_wifi(modem: Modem) -> Option<BlockingWifi<EspWifi<'static>>> {
+    let ssid = WIFI_SSID.unwrap_or("").trim();
+    let pass = WIFI_PASS.unwrap_or("");
 
-        let hi = (color >> 8) as u8;
-        let lo = (color & 0xFF) as u8;
-        let pixels = (x1 - x + 1) as u32 * (y1 - y + 1) as u32;
-
-        // 用 32-pixel 緩衝區發送
-        let chunk: [u8; 64] = {
-            let mut buf = [0u8; 64];
-            for i in (0..64).step_by(2) {
-                buf[i] = hi;
-                buf[i + 1] = lo;
-            }
-            buf
-        };
-
-        self.dc.set_high().unwrap();
-        self.cs.set_low().unwrap();
-        let full_chunks = pixels / 32;
-        let remainder = (pixels % 32) as usize;
-        for _ in 0..full_chunks {
-            self.spi.write(&chunk).unwrap();
-        }
-        if remainder > 0 {
-            self.spi.write(&chunk[..remainder * 2]).unwrap();
-        }
-        self.cs.set_high().unwrap();
+    if ssid.is_empty() {
+        log::warn!("WIFI_SSID not set; skipping Wi-Fi login");
+        return None;
+    }
+    if ssid.len() > 32 {
+        log::error!("WIFI_SSID is too long; ESP Wi-Fi SSID limit is 32 bytes");
+        return None;
+    }
+    if pass.len() > 64 {
+        log::error!("WIFI_PASS is too long; ESP Wi-Fi password limit is 64 bytes");
+        return None;
     }
 
-    /// 畫單個像素
-    fn draw_pixel(&mut self, x: u16, y: u16, color: u16) {
-        if x >= LCD_W || y >= LCD_H {
-            return;
+    match connect_wifi(modem, ssid, pass) {
+        Ok(wifi) => Some(wifi),
+        Err(err) => {
+            log::error!("Wi-Fi login failed: {err:?}");
+            None
         }
-        self.set_window(x, y, x, y);
-        self.send_data(&[(color >> 8) as u8, (color & 0xFF) as u8]);
     }
+}
 
-    /// 畫水平線（效率比逐點快）
-    fn draw_hline(&mut self, x: u16, y: u16, len: u16, color: u16) {
-        self.fill_rect(x, y, len, 1, color);
-    }
+fn connect_wifi(
+    modem: Modem,
+    ssid: &str,
+    pass: &str,
+) -> Result<BlockingWifi<EspWifi<'static>>, esp_idf_sys::EspError> {
+    let sys_loop = EspSystemEventLoop::take()?;
+    let nvs = EspDefaultNvsPartition::take()?;
 
-    /// 畫垂直線
-    fn draw_vline(&mut self, x: u16, y: u16, len: u16, color: u16) {
-        self.fill_rect(x, y, 1, len, color);
-    }
+    let mut wifi = BlockingWifi::wrap(EspWifi::new(modem, sys_loop.clone(), Some(nvs))?, sys_loop)?;
 
-    /// 顯示顏色條測試圖案
-    /// 分 8 格，每格不同顏色
-    fn test_color_bars(&mut self) {
-        let colors = [RED, GREEN, BLUE, YELLOW, CYAN, MAGENTA, WHITE, BLACK];
-        let bar_w = LCD_W / 8; // 30 像素每條
-        for (i, &color) in colors.iter().enumerate() {
-            self.fill_rect(i as u16 * bar_w, 0, bar_w, LCD_H, color);
-        }
-        log::info!("Color bars drawn");
-    }
+    let wifi_configuration = Configuration::Client(ClientConfiguration {
+        ssid: ssid.try_into().unwrap(),
+        bssid: None,
+        auth_method: if pass.is_empty() {
+            AuthMethod::None
+        } else {
+            AuthMethod::WPA2Personal
+        },
+        password: pass.try_into().unwrap(),
+        channel: None,
+        ..Default::default()
+    });
 
-    /// 顯示棋盤格測試圖案（測試像素對齊）
-    fn test_checkerboard(&mut self) {
-        let cell = 20u16; // 20x20 格子
-        self.fill_screen(BLACK);
-        let cols = LCD_W / cell;
-        let rows = LCD_H / cell;
-        for row in 0..rows {
-            for col in 0..cols {
-                let color = if (row + col) % 2 == 0 { WHITE } else { BLACK };
-                self.fill_rect(col * cell, row * cell, cell, cell, color);
-            }
-        }
-        log::info!("Checkerboard drawn");
-    }
+    wifi.set_configuration(&wifi_configuration)?;
+    wifi.start()?;
+    log::info!("Wi-Fi started; connecting to {ssid}");
 
-    /// 顯示邊框測試（確認 240x240 範圍）
-    fn test_border(&mut self) {
-        self.fill_screen(BLACK);
-        // 外框：2px 白色
-        self.draw_hline(0, 0, LCD_W, WHITE); // 上
-        self.draw_hline(0, LCD_H - 1, LCD_W, WHITE); // 下
-        self.draw_vline(0, 0, LCD_H, WHITE); // 左
-        self.draw_vline(LCD_W - 1, 0, LCD_H, WHITE); // 右
-                                                     // 對角線（像素點）
-        for i in 0..LCD_W.min(LCD_H) {
-            self.draw_pixel(i, i, RED);
-            self.draw_pixel(LCD_W - 1 - i, i, GREEN);
-        }
-        log::info!("Border test drawn");
-    }
+    wifi.connect()?;
+    wifi.wait_netif_up()?;
 
-    /// service status 模擬畫面（最終目標預覽）
-    /// 8 個格子，顯示 OK（綠）或 DOWN（紅）
-    fn test_service_status(&mut self) {
-        self.fill_screen(BLACK);
+    let ip_info = wifi.wifi().sta_netif().get_ip_info()?;
+    log::info!("Wi-Fi connected: {:?}", ip_info);
 
-        // 2x4 grid，每個 120x60
-        let cell_w: u16 = 120;
-        let cell_h: u16 = 60;
-        let services = [
-            ("SVC-1", true),
-            ("SVC-2", true),
-            ("SVC-3", false),
-            ("SVC-4", true),
-            ("SVC-5", true),
-            ("SVC-6", false),
-            ("SVC-7", true),
-            ("SVC-8", true),
-        ];
-
-        for (i, (_name, ok)) in services.iter().enumerate() {
-            let col = (i % 2) as u16;
-            let row = (i / 2) as u16;
-            let x = col * cell_w;
-            let y = row * cell_h;
-            let bg = if *ok { 0x0400u16 } else { 0x6000u16 }; // 深綠 / 深紅背景
-            let fg = if *ok { GREEN } else { RED };
-
-            // 背景
-            self.fill_rect(x + 2, y + 2, cell_w - 4, cell_h - 4, bg);
-            // 狀態指示條（左側 8px）
-            self.fill_rect(x + 2, y + 2, 8, cell_h - 4, fg);
-            // 分格線
-            self.draw_hline(x, y, cell_w, 0x2104); // 暗灰
-            self.draw_vline(x, y, cell_h, 0x2104);
-        }
-        log::info!("Service status mock drawn");
-    }
+    Ok(wifi)
 }
 
 // ───────────────────────────────────────────────
@@ -325,6 +258,7 @@ fn main() {
 
     let peripherals = Peripherals::take().unwrap();
     let pins = peripherals.pins;
+    let modem = peripherals.modem;
 
     // SPI 驅動：SPI2（HSPI），40 MHz
     // ST7789 最高支持 ~62.5 MHz，保守用 40 MHz
@@ -361,52 +295,18 @@ fn main() {
     // ── 初始化 LCD ──
     lcd.init();
 
-    // ── 測試序列 ──
-    // 1. 全屏紅色（確認 LCD 有輸出）
-    log::info!("Test 1: Full red");
-    lcd.fill_screen(RED);
-    FreeRtos::delay_ms(1500);
+    // ── Wi-Fi 登錄 ──
+    // 保留 wifi 句柄，避免連線成功後 Wi-Fi driver 被 drop 而斷線。
+    let wifi = start_wifi(modem);
+    if wifi.is_some() {
+        log::info!("Display status: Wi-Fi OK");
+        lcd.fill_screen(GREEN);
+    } else {
+        log::info!("Display status: Wi-Fi failed");
+        lcd.fill_screen(RED);
+    }
 
-    // 2. 全屏綠色
-    log::info!("Test 2: Full green");
-    lcd.fill_screen(GREEN);
-    FreeRtos::delay_ms(1500);
-
-    // 3. 全屏藍色
-    log::info!("Test 3: Full blue");
-    lcd.fill_screen(BLUE);
-    FreeRtos::delay_ms(1500);
-
-    // 4. 顏色條（8色）
-    log::info!("Test 4: Color bars");
-    lcd.test_color_bars();
-    FreeRtos::delay_ms(2000);
-
-    // 5. 棋盤格（測試像素精度）
-    log::info!("Test 5: Checkerboard");
-    lcd.test_checkerboard();
-    FreeRtos::delay_ms(2000);
-
-    // 6. 邊框 + 對角線（確認 240x240 覆蓋）
-    log::info!("Test 6: Border + diagonals");
-    lcd.test_border();
-    FreeRtos::delay_ms(2000);
-
-    // 7. Service status 模擬（最終目標預覽）
-    log::info!("Test 7: Service status mock");
-    lcd.test_service_status();
-    FreeRtos::delay_ms(3000);
-
-    // ── 循環展示 ──
-    log::info!("Entering display loop");
-    let mut step: u32 = 0;
     loop {
-        match step % 3 {
-            0 => lcd.test_color_bars(),
-            1 => lcd.test_checkerboard(),
-            _ => lcd.test_service_status(),
-        }
-        step += 1;
-        FreeRtos::delay_ms(3000);
+        FreeRtos::delay_ms(1000);
     }
 }

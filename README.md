@@ -56,6 +56,28 @@ ls ~/export-esp.sh
 
 ## Build & Flash
 
+### Wi-Fi 登錄設定
+
+Wi-Fi SSID / password 寫在 `.env`，建議先從範本複製：
+
+```bash
+cp .env.example .env
+```
+
+`.env` 內容：
+
+```dotenv
+WIFI_SSID=你的 Wi-Fi 名稱
+WIFI_PASS=你的 Wi-Fi 密碼
+```
+
+若是開放網路，可把 `WIFI_PASS` 留空。若沒有設定 `WIFI_SSID`，韌體會判定
+Wi-Fi 登錄失敗並顯示紅色。
+
+重要：ESP32-S3 只支援 **2.4 GHz Wi-Fi**，不能連 **5 GHz Wi-Fi**。如果路由器有
+`xxx_5G` / `xxx_2G` 兩個 SSID，請在 `.env` 裡填 2.4 GHz 那個，例如 `xxx_2G`。
+連到 5 GHz SSID 會 timeout，serial monitor 可能會看到 `ESP_ERR_TIMEOUT`。
+
 ```bash
 # 進入專案目錄
 cd esp32-lcd-test
@@ -75,6 +97,10 @@ cargo build --release
 espflash flash --flash-mode dout --flash-freq 20mhz --flash-size 16mb \
   target/xtensa-esp32s3-espidf/release/esp32-lcd-test --monitor
 ```
+
+連線成功後 serial monitor 會顯示 `Wi-Fi connected` 與 DHCP IP 資訊，LCD 會顯示純綠色。
+若 Wi-Fi 登錄失敗或沒有設定 SSID，LCD 會顯示純紅色。
+因為 `.env` 內容會編譯進韌體，改 SSID / password 後請重新 `cargo run --release`。
 
 本板子的 embedded flash 使用 DIO/40 MHz 會在 ROM 階段出現
 `Invalid image block, can't boot.`。`sdkconfig.defaults` 已固定為 DOUT/20 MHz。
@@ -103,18 +129,11 @@ sudo espflash flash \
 
 ---
 
-## 測試序列說明
+## 屏幕狀態
 
-開機後會依序顯示：
-1. **全紅** → 確認 LCD 有輸出
-2. **全綠** → 確認綠色通道
-3. **全藍** → 確認藍色通道
-4. **8色條** → 確認顏色正確
-5. **棋盤格** → 確認像素對齊
-6. **邊框+對角線** → 確認 240x240 覆蓋
-7. **Service status 模擬** → 最終目標預覽
-
-之後無限循環顯示 4/5/7。
+開機後只顯示 Wi-Fi 登錄結果：
+1. **純綠色** → Wi-Fi 登錄成功
+2. **純紅色** → Wi-Fi 登錄失敗，或 `.env` 沒有設定 `WIFI_SSID`
 
 ---
 
@@ -153,10 +172,9 @@ espflash flash --port /dev/ttyACM0 target/.../esp32-lcd-test --monitor
 
 ---
 
-## 下一步（Wi-Fi + HTTPS）
+## 下一步（HTTPS）
 
-最小 LCD 測試通過後，下一步加入：
-1. `esp-idf-svc::wifi` — Wi-Fi 連接
-2. `esp-idf-svc::http::client` — HTTPS GET
-3. 定時器每 60s 輪詢 8 個 endpoint
-4. 結果寫入 LCD（不再需要 test patterns）
+Wi-Fi 登錄已加入；下一步可以接：
+1. `esp-idf-svc::http::client` — HTTPS GET
+2. 定時器每 60s 輪詢 8 個 endpoint
+3. 結果寫入 LCD（不再需要 test patterns）
