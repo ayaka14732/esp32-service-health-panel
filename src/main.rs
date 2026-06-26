@@ -53,6 +53,7 @@ const BLACK: u16 = 0x0000;
 const WHITE: u16 = 0xFFFF;
 const RED: u16 = 0xF800;
 const GREEN: u16 = 0x07E0;
+const BLUE: u16 = 0x001F;
 
 // 屏幕尺寸
 const LCD_W: u16 = 240;
@@ -186,6 +187,17 @@ impl<'d> St7789<'d> {
             self.spi.write(&row).unwrap();
         }
         self.cs.set_high().unwrap();
+    }
+
+    fn draw_boot_screen(&mut self) {
+        self.fill_screen(BLUE);
+        self.draw_alpha_bitmap(
+            persian_status::TITLE_X,
+            persian_status::TITLE_Y,
+            &persian_status::TITLE,
+            BLUE,
+            WHITE,
+        );
     }
 
     fn draw_success_text(&mut self) {
@@ -461,6 +473,9 @@ fn main() {
 
     // ── 初始化 LCD ──
     lcd.init();
+
+    // ── 開機畫面：立即顯示，避免 Wi-Fi 連線期間屏幕雜訊 ──
+    lcd.draw_boot_screen();
 
     // ── Wi-Fi 登錄 ──
     // 保留 wifi 句柄，避免連線成功後 Wi-Fi driver 被 drop 而斷線。
