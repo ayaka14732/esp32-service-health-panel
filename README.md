@@ -69,6 +69,10 @@ cp .env.example .env
 ```dotenv
 WIFI_SSID=你的 Wi-Fi 名稱
 WIFI_PASS=你的 Wi-Fi 密碼
+RAILWAY_TOKEN=你的 Railway Token
+RAILWAY_PROJECT_ID=你的 Railway Project ID
+RAILWAY_SERVICE_ID=你的 Railway Service ID
+RAILWAY_ENVIRONMENT_ID=你的 Railway Environment ID
 ```
 
 若是開放網路，可把 `WIFI_PASS` 留空。若沒有設定 `WIFI_SSID`，韌體會判定
@@ -98,18 +102,22 @@ espflash flash --flash-mode dout --flash-freq 20mhz --flash-size 16mb \
   target/xtensa-esp32s3-espidf/release/esp32-lcd-test --monitor
 ```
 
-連線成功後 serial monitor 會顯示 `Wi-Fi connected` 與 DHCP IP 資訊，接著會檢查兩個 endpoint：
+連線成功後 serial monitor 會顯示 `Wi-Fi connected` 與 DHCP IP 資訊，接著會檢查三個 endpoint：
 
 ```text
 https://uk-railway-journey-recorder-api.shn.hk/api/health
 https://ipinfo.shn.hk/
+https://backboard.railway.com/graphql/v2
 ```
 
-第一個 endpoint 必須回傳 HTTP 200 且 body 是 `{"status":"ok"}`。
-第二個 endpoint 必須回傳 HTTP 200 且 response 第一個字符是數字。
-只有兩個 health check 都成功時，LCD 才會顯示純綠色。若 Wi-Fi 登錄失敗、沒有設定 SSID、
-HTTPS 請求失敗、或任一 health check 不符合條件，LCD 都會顯示純紅色。
-因為 `.env` 內容會編譯進韌體，改 SSID / password 後請重新 `cargo run --release`。
+- 第一個 endpoint 必須回傳 HTTP 200 且 body 是 `{"status":"ok"}`。
+- 第二個 endpoint 必須回傳 HTTP 200 且 response 第一行是 IP 位址。
+- 第三個 endpoint 會對 Railway GraphQL 查詢指定 service 的最新 deployment，
+  回傳 HTTP 200 且 `status` 為 `"SUCCESS"` 或 `"SLEEPING"` 才算通過。
+
+三個 health check 都成功時，LCD 才會顯示綠色狀態畫面。若 Wi-Fi 登錄失敗、沒有設定 SSID、
+任何一個 env 變數未設定、HTTPS 請求失敗、或任一 health check 不符合條件，LCD 都會顯示純紅色。
+因為 `.env` 內容會編譯進韌體，改 SSID / password / Railway 相關設定後請重新 `cargo run --release`。
 
 本板子的 embedded flash 使用 DIO/40 MHz 會在 ROM 階段出現
 `Invalid image block, can't boot.`。`sdkconfig.defaults` 已固定為 DOUT/20 MHz。
@@ -142,14 +150,14 @@ sudo espflash flash \
 
 開機後屏幕狀態：
 1. **藍底 + 置中白色波斯語標題** → 開機畫面，LCD 初始化完成後立即顯示
-2. **白底 + 置中波斯語標題 + 右側綠色圓點狀態列** → Wi-Fi 登錄成功，且兩個 API health check 都通過
+2. **白底 + 置中波斯語標題 + 右側綠色圓點狀態列** → Wi-Fi 登錄成功，且三個 API health check 都通過
 3. **純紅色** → Wi-Fi 或任一 API health check 失敗
 
 成功畫面上的波斯語狀態文字為預渲染 bitmap：
 1. 置中標題：`وضعیت سلامت`
-2. `وای‌فای` + 右側綠色圓點
-3. `راه‌آهن` + 右側綠色圓點
-4. `آی‌پی` + 右側綠色圓點
+2. `راه‌آهن` + 右側綠色圓點
+3. `آی‌پی` + 右側綠色圓點
+4. `گراف‌ویز` + 右側綠色圓點
 
 波斯語 bitmap 由 `tools/generate_persian_status.py` 生成。若要改文字、字型或位置，修改
 該 script 後重新生成：

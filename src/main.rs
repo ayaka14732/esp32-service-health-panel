@@ -483,7 +483,8 @@ fn main() {
     let _sntp = if wifi.is_some() { start_sntp() } else { None };
     let railway_ok = wifi.is_some() && health::railway::ok();
     let ipinfo_ok = wifi.is_some() && health::ipinfo::ok();
-    let healthy = railway_ok && ipinfo_ok;
+    let graphviz_ok = wifi.is_some() && health::graphviz::ok();
+    let healthy = railway_ok && ipinfo_ok && graphviz_ok;
 
     if healthy {
         log::info!("Display status: all health checks passed");

@@ -5,6 +5,10 @@ use std::fs;
 fn main() {
     println!("cargo:rerun-if-env-changed=WIFI_SSID");
     println!("cargo:rerun-if-env-changed=WIFI_PASS");
+    println!("cargo:rerun-if-env-changed=RAILWAY_TOKEN");
+    println!("cargo:rerun-if-env-changed=RAILWAY_PROJECT_ID");
+    println!("cargo:rerun-if-env-changed=RAILWAY_SERVICE_ID");
+    println!("cargo:rerun-if-env-changed=RAILWAY_ENVIRONMENT_ID");
     println!("cargo:rerun-if-changed=.env");
 
     if let Some(ssid) = env_value("WIFI_SSID") {
@@ -12,6 +16,18 @@ fn main() {
     }
     if let Some(pass) = env_value("WIFI_PASS") {
         println!("cargo:rustc-env=WIFI_PASS={pass}");
+    }
+    if let Some(token) = env_value("RAILWAY_TOKEN") {
+        println!("cargo:rustc-env=RAILWAY_TOKEN={token}");
+    }
+    if let Some(id) = env_value("RAILWAY_PROJECT_ID") {
+        println!("cargo:rustc-env=RAILWAY_PROJECT_ID={id}");
+    }
+    if let Some(id) = env_value("RAILWAY_SERVICE_ID") {
+        println!("cargo:rustc-env=RAILWAY_SERVICE_ID={id}");
+    }
+    if let Some(id) = env_value("RAILWAY_ENVIRONMENT_ID") {
+        println!("cargo:rustc-env=RAILWAY_ENVIRONMENT_ID={id}");
     }
 
     embuild::espidf::sysenv::output();

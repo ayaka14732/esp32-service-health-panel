@@ -19,9 +19,9 @@ FONT_CANDIDATES = [
 
 TITLE = ("TITLE", "وضعیت سلامت", 29)
 ITEMS = [
-    ("WIFI", "وای\u200cفای", 34),
     ("RAILWAY", "راه\u200cآهن", 34),
     ("IPINFO", "آی\u200cپی", 34),
+    ("GRAPHVIZ", "گراف\u200cویز", 34),
 ]
 
 
@@ -122,10 +122,10 @@ def render_rust(bitmaps: list[dict[str, object]]) -> str:
 
     lines = [
         "// Generated Persian status label masks. Source text:",
-        "// Title   -> وضعیت سلامت",
-        "// Wi-Fi   -> وای‌فای",
-        "// Railway -> راه‌آهن",
-        "// IP info -> آی‌پی",
+        "// Title    -> وضعیت سلامت",
+        "// Railway  -> راه‌آهن",
+        "// IP info  -> آی‌پی",
+        "// Graphviz -> گراف‌ویز",
         "",
         "pub struct AlphaBitmap {",
         "    pub width: u16,",
@@ -172,7 +172,7 @@ def render_rust(bitmaps: list[dict[str, object]]) -> str:
         ]
     )
 
-    for y, name in [(82, "WIFI"), (136, "RAILWAY"), (190, "IPINFO")]:
+    for y, name in [(82, "RAILWAY"), (136, "IPINFO"), (190, "GRAPHVIZ")]:
         width, height = dimensions[name]
         lines.extend(
             [
