@@ -150,6 +150,18 @@ sudo espflash flash \
 3. `راه‌آهن` + 右側綠色圓點
 4. `آی‌پی` + 右側綠色圓點
 
+波斯語 bitmap 由 `tools/generate_persian_status.py` 生成。若要改文字、字型或位置，修改
+該 script 後重新生成：
+
+```bash
+python3 tools/generate_persian_status.py
+cargo fmt
+```
+
+script 需要 Python Pillow，且 Pillow 需支援 RAQM shaping；字型預設使用
+`NotoSansArabic-Bold.ttf`。生成後會更新 `src/persian_status.rs`，並輸出預覽圖到
+`target/persian_status_preview.png`。
+
 ---
 
 ## 常見問題
