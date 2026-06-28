@@ -102,7 +102,8 @@ espflash flash --flash-mode dout --flash-freq 20mhz --flash-size 16mb \
   target/xtensa-esp32s3-espidf/release/esp32-lcd-test --monitor
 ```
 
-連線成功後 serial monitor 會顯示 `Wi-Fi connected` 與 DHCP IP 資訊，接著會檢查四個 endpoint：
+連線成功後 serial monitor 會顯示 `Wi-Fi connected` 與 DHCP IP 資訊，接著會立即檢查四個 endpoint，
+之後每 10 分鐘重新檢測一輪並更新 LCD：
 
 ```text
 https://uk-railway-journey-recorder-api.shn.hk/api/health
@@ -208,12 +209,3 @@ echo $PATH | grep xtensa
 espflash list-ports
 espflash flash --port /dev/ttyACM0 target/.../esp32-lcd-test --monitor
 ```
-
----
-
-## 下一步（HTTPS）
-
-Wi-Fi 登錄已加入；下一步可以接：
-1. `esp-idf-svc::http::client` — HTTPS GET
-2. 定時器每 60s 輪詢 8 個 endpoint
-3. 結果寫入 LCD（不再需要 test patterns）

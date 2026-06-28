@@ -61,6 +61,7 @@ const LCD_H: u16 = 240;
 
 const WIFI_SSID: Option<&str> = option_env!("WIFI_SSID");
 const WIFI_PASS: Option<&str> = option_env!("WIFI_PASS");
+const HEALTH_CHECK_INTERVAL_MS: u32 = 10 * 60 * 1000;
 
 // ───────────────────────────────────────────────
 // ST7789 驅動結構體
@@ -483,17 +484,18 @@ fn main() {
     // 保留 wifi 句柄，避免連線成功後 Wi-Fi driver 被 drop 而斷線。
     let wifi = start_wifi(modem);
     let _sntp = if wifi.is_some() { start_sntp() } else { None };
-    let railway_ok = wifi.is_some() && health::railway::ok();
-    let ipinfo_ok = wifi.is_some() && health::ipinfo::ok();
-    let graphviz_ok = wifi.is_some() && health::graphviz::ok();
-    let polaris_ok = wifi.is_some() && health::polaris::ok();
-
-    log::info!(
-        "Display status: railway={railway_ok}, ipinfo={ipinfo_ok}, graphviz={graphviz_ok}, polaris={polaris_ok}"
-    );
-    lcd.draw_status_screen([railway_ok, ipinfo_ok, graphviz_ok, polaris_ok]);
 
     loop {
-        FreeRtos::delay_ms(1000);
+        let railway_ok = wifi.is_some() && health::railway::ok();
+        let ipinfo_ok = wifi.is_some() && health::ipinfo::ok();
+        let graphviz_ok = wifi.is_some() && health::graphviz::ok();
+        let polaris_ok = wifi.is_some() && health::polaris::ok();
+
+        log::info!(
+            "Display status: railway={railway_ok}, ipinfo={ipinfo_ok}, graphviz={graphviz_ok}, polaris={polaris_ok}"
+        );
+        lcd.draw_status_screen([railway_ok, ipinfo_ok, graphviz_ok, polaris_ok]);
+
+        FreeRtos::delay_ms(HEALTH_CHECK_INTERVAL_MS);
     }
 }
