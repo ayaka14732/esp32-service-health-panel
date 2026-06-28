@@ -1,6 +1,6 @@
 # .cargo/config.toml
-# ESP32-S3 使用 Xtensa LX7 核心
-# 需要 espup 安裝的 xtensa-esp32s3-espidf toolchain
+# ESP32-S3 uses the Xtensa LX7 core
+# Requires the xtensa-esp32s3-espidf toolchain installed by espup
 
 [build]
 target = "xtensa-esp32s3-espidf"
@@ -10,9 +10,9 @@ linker = "ldproxy" # ESP-IDF link wrapper
 runner = "espflash flash --flash-mode dout --flash-freq 20mhz --flash-size 16mb --monitor"
 
 [env]
-# esp-idf-sys 需要知道 ESP-IDF 版本
+# esp-idf-sys needs to know the ESP-IDF version
 ESP_IDF_VERSION = "v5.2.3"
-# 如果你用 espup 安裝的 ESP-IDF，路徑通常是：
+# If you installed ESP-IDF with espup, the path is usually:
 # ESP_IDF_SDKCONFIG_DEFAULTS = "sdkconfig.defaults"
 
 [unstable]
