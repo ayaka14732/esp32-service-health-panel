@@ -5,6 +5,8 @@ always-on service health panel. It connects to Wi-Fi, checks the configured HTTP
 endpoints on a 10-minute cycle, and shows a Persian status screen with green or red dots for
 each service.
 
+<img src="docs/assets/service-health-panel.jpg" alt="ESP32 service health panel running on a 240x240 LCD" width="320">
+
 ## Hardware Wiring
 
 | LCD Pin | ESP32-S3 GPIO |
