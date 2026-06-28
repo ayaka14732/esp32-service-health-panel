@@ -9,7 +9,7 @@ name = "esp32-lcd-test"
 harness = false
 
 [dependencies]
-# ESP-IDF HAL — 直接操作硬件，不走 Arduino
+# ESP-IDF HAL: direct hardware access without Arduino
 esp-idf-svc = { version = "0.51", features = ["binstart"] }
 esp-idf-hal = "0.45"
 esp-idf-sys = { version = "0.36", features = ["binstart"] }
@@ -20,8 +20,8 @@ log = "0.4"
 embuild = { version = "0.33", features = ["espidf"] }
 
 [profile.release]
-opt-level = "s"   # 最小 binary size
+opt-level = "s"   # Minimize binary size
 
 [profile.dev]
-opt-level = "s"   # dev 也縮，flash 空間省著用
+opt-level = "s"   # Keep dev builds small to save flash space
 debug = true

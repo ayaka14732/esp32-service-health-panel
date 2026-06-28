@@ -1,7 +1,7 @@
 # ESP-IDF SDK configuration
-# 這個檔案會被 esp-idf-sys 的 build script 讀取
+# This file is read by the esp-idf-sys build script.
 
-# 增加主任務 stack，Rust 需要
+# Increase the main task stack size for Rust.
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 
 # SPI flash
@@ -14,10 +14,10 @@ CONFIG_ESPTOOLPY_FLASHMODE="dout"
 CONFIG_ESPTOOLPY_FLASHFREQ_20M=y
 CONFIG_ESPTOOLPY_FLASHFREQ="20m"
 
-# 不需要 Bluetooth，省 RAM
+# Bluetooth is not needed; save RAM.
 CONFIG_BT_ENABLED=n
 
-# Log level（debug 階段用 Info，正式可改 Warn）
+# Log level: use Info while debugging; Warn is suitable for release builds.
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 
 # HTTPS health check needs trusted root certificates.

@@ -1,7 +1,7 @@
 // src/main.rs
-// ESP32-S3 + ST7789 1.54" 240x240 IPS LCD 最小測試
+// ESP32-S3 + ST7789 1.54" 240x240 IPS LCD service health panel
 //
-// 接線：
+// Wiring:
 //   LCD VCC  -> 3V3
 //   LCD GND  -> GND
 //   LCD SCL  -> GPIO12  (SPI SCLK)
@@ -9,7 +9,7 @@
 //   LCD RES  -> GPIO10  (Reset)
 //   LCD DC   -> GPIO9   (Data/Command)
 //   LCD CS   -> GPIO8   (Chip Select)
-//   LCD BL   -> 3V3     (背光，常亮)
+//   LCD BL   -> 3V3     (backlight, always on)
 
 mod health;
 mod persian_status;
@@ -32,15 +32,15 @@ use esp_idf_svc::{
         AuthMethod, BlockingWifi, ClientConfiguration, Configuration as WifiConfiguration, EspWifi,
     },
 };
-use esp_idf_sys as _; // 必須 link ESP-IDF runtime
+use esp_idf_sys as _; // Required to link the ESP-IDF runtime
 
 // ───────────────────────────────────────────────
-// ST7789 指令常數
+// ST7789 command constants
 // ───────────────────────────────────────────────
 const ST7789_SWRESET: u8 = 0x01; // Software Reset
 const ST7789_SLPOUT: u8 = 0x11; // Sleep Out
 const ST7789_NORON: u8 = 0x13; // Normal Display Mode ON
-const ST7789_INVON: u8 = 0x21; // Display Inversion ON（IPS 面板需要）
+const ST7789_INVON: u8 = 0x21; // Display Inversion ON (needed by IPS panels)
 const ST7789_DISPON: u8 = 0x29; // Display ON
 const ST7789_CASET: u8 = 0x2A; // Column Address Set
 const ST7789_RASET: u8 = 0x2B; // Row Address Set
@@ -48,14 +48,14 @@ const ST7789_RAMWR: u8 = 0x2C; // Memory Write
 const ST7789_COLMOD: u8 = 0x3A; // Interface Pixel Format
 const ST7789_MADCTL: u8 = 0x36; // Memory Access Control
 
-// 顏色（RGB565 格式，big-endian）
+// Colors in RGB565 format, big-endian
 const BLACK: u16 = 0x0000;
 const WHITE: u16 = 0xFFFF;
 const RED: u16 = 0xF800;
 const GREEN: u16 = 0x07E0;
 const BLUE: u16 = 0x001F;
 
-// 屏幕尺寸
+// Screen dimensions
 const LCD_W: u16 = 240;
 const LCD_H: u16 = 240;
 
@@ -64,7 +64,7 @@ const WIFI_PASS: Option<&str> = option_env!("WIFI_PASS");
 const HEALTH_CHECK_INTERVAL_MS: u32 = 10 * 60 * 1000;
 
 // ───────────────────────────────────────────────
-// ST7789 驅動結構體
+// ST7789 driver state
 // ───────────────────────────────────────────────
 struct St7789<'d> {
     spi: SpiBusDriver<'d, SpiDriver<'d>>,
@@ -74,7 +74,7 @@ struct St7789<'d> {
 }
 
 impl<'d> St7789<'d> {
-    /// 發送指令（DC 拉低）
+    /// Send a command with DC low.
     fn send_cmd(&mut self, cmd: u8) {
         self.dc.set_low().unwrap();
         self.cs.set_low().unwrap();
@@ -82,31 +82,31 @@ impl<'d> St7789<'d> {
         self.cs.set_high().unwrap();
     }
 
-    /// 發送資料（DC 拉高）
+    /// Send data with DC high.
     fn send_data(&mut self, data: &[u8]) {
         self.dc.set_high().unwrap();
         self.cs.set_low().unwrap();
-        // SPI write 有 buffer 限制，分塊發送
+        // SPI writes have a buffer limit, so send data in chunks.
         for chunk in data.chunks(64) {
             self.spi.write(chunk).unwrap();
         }
         self.cs.set_high().unwrap();
     }
 
-    /// 發送單 byte 資料
+    /// Send a single data byte.
     fn send_data_byte(&mut self, byte: u8) {
         self.send_data(&[byte]);
     }
 
-    /// 硬件 Reset + 初始化序列
+    /// Hardware reset and initialization sequence.
     fn init(&mut self) {
-        // 硬件 Reset
+        // Hardware reset
         self.rst.set_high().unwrap();
         FreeRtos::delay_ms(10);
         self.rst.set_low().unwrap();
         FreeRtos::delay_ms(10);
         self.rst.set_high().unwrap();
-        FreeRtos::delay_ms(120); // ST7789 datasheet: reset 後等 120ms
+        FreeRtos::delay_ms(120); // ST7789 datasheet: wait 120 ms after reset
 
         // Software Reset
         self.send_cmd(ST7789_SWRESET);
@@ -116,17 +116,17 @@ impl<'d> St7789<'d> {
         self.send_cmd(ST7789_SLPOUT);
         FreeRtos::delay_ms(500);
 
-        // 像素格式：16-bit RGB565
+        // Pixel format: 16-bit RGB565
         self.send_cmd(ST7789_COLMOD);
         self.send_data_byte(0x55); // 0x55 = 16bpp
         FreeRtos::delay_ms(10);
 
         // Memory Access Control
-        // 0x00 = 正常方向（RGB order, top-to-bottom, left-to-right）
+        // 0x00 = normal orientation (RGB order, top-to-bottom, left-to-right)
         self.send_cmd(ST7789_MADCTL);
         self.send_data_byte(0x00);
 
-        // IPS 面板需要 Inversion ON
+        // IPS panels need inversion enabled.
         self.send_cmd(ST7789_INVON);
         FreeRtos::delay_ms(10);
 
@@ -141,7 +141,7 @@ impl<'d> St7789<'d> {
         log::info!("ST7789 init done");
     }
 
-    /// 設定寫入視窗（Column + Row Address）
+    /// Set the write window (column and row address).
     fn set_window(&mut self, x0: u16, y0: u16, x1: u16, y1: u16) {
         // Column Address Set
         self.send_cmd(ST7789_CASET);
@@ -159,19 +159,19 @@ impl<'d> St7789<'d> {
             (y1 >> 8) as u8,
             (y1 & 0xFF) as u8,
         ]);
-        // Memory Write（後面跟像素資料）
+        // Memory Write, followed by pixel data.
         self.send_cmd(ST7789_RAMWR);
     }
 
-    /// 填充整個屏幕為單色
+    /// Fill the entire screen with one color.
     fn fill_screen(&mut self, color: u16) {
         self.set_window(0, 0, LCD_W - 1, LCD_H - 1);
 
         let hi = (color >> 8) as u8;
         let lo = (color & 0xFF) as u8;
 
-        // 每次發送 64 像素（128 bytes），減少 SPI 開銷
-        // 240*240 = 57600 像素 = 115200 bytes
+        // Send 64 pixels (128 bytes) at a time to reduce SPI overhead.
+        // 240*240 = 57,600 pixels = 115,200 bytes.
         let row: [u8; 128] = {
             let mut buf = [0u8; 128];
             for i in (0..128).step_by(2) {
@@ -183,7 +183,7 @@ impl<'d> St7789<'d> {
 
         self.dc.set_high().unwrap();
         self.cs.set_low().unwrap();
-        // 57600 像素 / 64 像素 = 900 次
+        // 57,600 pixels / 64 pixels = 900 writes.
         for _ in 0..900 {
             self.spi.write(&row).unwrap();
         }
@@ -432,7 +432,7 @@ fn start_sntp() -> Option<EspSntp<'static>> {
 // main
 // ───────────────────────────────────────────────
 fn main() {
-    // 必須在最開頭呼叫，初始化 ESP-IDF runtime
+    // Must be called first to initialize the ESP-IDF runtime.
     esp_idf_sys::link_patches();
     esp_idf_svc::log::EspLogger::initialize_default();
 
@@ -442,14 +442,14 @@ fn main() {
     let pins = peripherals.pins;
     let modem = peripherals.modem;
 
-    // SPI 驅動：SPI2（HSPI），40 MHz
-    // ST7789 最高支持 ~62.5 MHz，保守用 40 MHz
+    // SPI driver: SPI2 (HSPI), 40 MHz.
+    // ST7789 supports up to about 62.5 MHz; use 40 MHz conservatively.
     let spi_driver = SpiDriver::new(
         peripherals.spi2,
         pins.gpio12,                                                  // SCLK
         pins.gpio11,                                                  // MOSI
-        None::<Gpio12>,                                               // MISO（不需要，LCD 單向）
-        &esp_idf_hal::spi::SpiDriverConfig::new().dma(Dma::Disabled), // 最小測試不用 DMA
+        None::<Gpio12>,                                               // MISO is not needed; the LCD is write-only.
+        &esp_idf_hal::spi::SpiDriverConfig::new().dma(Dma::Disabled), // DMA is not needed for this small display.
     )
     .unwrap();
 
@@ -457,12 +457,12 @@ fn main() {
         polarity: Polarity::IdleLow,            // CPOL=0
         phase: Phase::CaptureOnFirstTransition, // CPHA=0
     });
-    // ST7789 用 SPI Mode 0（CPOL=0, CPHA=0）或 Mode 3 均可，
-    // 這裡用 Mode 0
+    // ST7789 works with SPI Mode 0 (CPOL=0, CPHA=0) or Mode 3.
+    // Use Mode 0 here.
 
     let spi_bus = SpiBusDriver::new(spi_driver, &spi_config).unwrap();
 
-    // GPIO 配置
+    // GPIO configuration
     let dc = PinDriver::output(pins.gpio9).unwrap(); // Data/Command
     let rst = PinDriver::output(pins.gpio10).unwrap(); // Reset
     let cs = PinDriver::output(pins.gpio8).unwrap(); // Chip Select
@@ -474,14 +474,14 @@ fn main() {
         cs,
     };
 
-    // ── 初始化 LCD ──
+    // ── Initialize LCD ──
     lcd.init();
 
-    // ── 開機畫面：立即顯示，避免 Wi-Fi 連線期間屏幕雜訊 ──
+    // ── Boot screen: show immediately to avoid display noise during Wi-Fi connection ──
     lcd.draw_boot_screen();
 
-    // ── Wi-Fi 登錄 ──
-    // 保留 wifi 句柄，避免連線成功後 Wi-Fi driver 被 drop 而斷線。
+    // ── Wi-Fi login ──
+    // Keep the Wi-Fi handle alive so the driver is not dropped after connection.
     let wifi = start_wifi(modem);
     let _sntp = if wifi.is_some() { start_sntp() } else { None };
 

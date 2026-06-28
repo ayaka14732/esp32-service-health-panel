@@ -1,5 +1,5 @@
 // build.rs
-// esp-idf-sys 需要這個來找 ESP-IDF toolchain
+// esp-idf-sys uses this to find the ESP-IDF toolchain.
 use std::fs;
 
 fn main() {

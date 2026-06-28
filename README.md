@@ -1,6 +1,6 @@
-# ESP32-S3 + ST7789 LCD Test
+# ESP32 Service Health Panel
 
-## 硬件接線
+## Hardware Wiring
 
 | LCD Pin | ESP32-S3 GPIO |
 |---------|--------------|
@@ -11,44 +11,44 @@
 | RES/RST | GPIO10       |
 | DC/A0   | GPIO9        |
 | CS      | GPIO8        |
-| BL      | 3V3 (常亮)   |
+| BL      | 3V3 (always on) |
 
 ---
 
-## Arch Linux 環境安裝
+## Arch Linux Setup
 
-### 1. 安裝 espup（ESP32 Rust toolchain 管理器）
+### 1. Install espup (ESP32 Rust toolchain manager)
 
 ```bash
-sudo pacman -S --needed libxml2-legacy  # ESP-IDF clang 需要舊版 libxml2 ABI
+sudo pacman -S --needed libxml2-legacy  # ESP-IDF clang needs the legacy libxml2 ABI
 cargo install espup
-espup install   # 安裝 xtensa-esp32s3-espidf toolchain
-source ~/export-esp.sh  # 每次開新 terminal 都需要
+espup install   # Install the xtensa-esp32s3-espidf toolchain
+source ~/export-esp.sh  # Required in every new terminal
 ```
 
-本專案包含 `rust-toolchain.toml`，會自動使用 `esp` Rust toolchain。
+This project includes `rust-toolchain.toml`, so it automatically uses the `esp` Rust toolchain.
 
-### 2. 安裝 espflash
+### 2. Install espflash
 
 ```bash
 cargo install espflash
 cargo install ldproxy
 ```
 
-### 3. serial port 權限（避免每次 sudo）
+### 3. Serial port permissions (avoid sudo each time)
 
 ```bash
-sudo usermod -aG uucp $USER  # Arch 通常使用 uucp；其他 distro 可能是 dialout
-# 重新登入生效
-# 確認：
+sudo usermod -aG uucp $USER  # Arch usually uses uucp; other distros may use dialout
+# Log out and back in for the change to take effect
+# Check:
 ls -la /dev/ttyACM0
 ```
 
-### 4. 確認 ESP-IDF（espup 會自動安裝）
+### 4. Check ESP-IDF (installed by espup)
 
 ```bash
-# espup 裝完後路徑通常在 ~/.espressif/
-# 確認 export-esp.sh 存在：
+# After espup finishes, the files are usually under ~/.espressif/
+# Confirm that export-esp.sh exists:
 ls ~/export-esp.sh
 ```
 
@@ -56,54 +56,56 @@ ls ~/export-esp.sh
 
 ## Build & Flash
 
-### Wi-Fi 登錄設定
+### Wi-Fi Credentials
 
-Wi-Fi SSID / password 寫在 `.env`，建議先從範本複製：
+Store the Wi-Fi SSID and password in `.env`. Start by copying the template:
 
 ```bash
 cp .env.example .env
 ```
 
-`.env` 內容：
+`.env` contents:
 
 ```dotenv
-WIFI_SSID=你的 Wi-Fi 名稱
-WIFI_PASS=你的 Wi-Fi 密碼
-RAILWAY_TOKEN=你的 Railway Token
-RAILWAY_PROJECT_ID=你的 Railway Project ID
-RAILWAY_SERVICE_ID=你的 Railway Service ID
-RAILWAY_ENVIRONMENT_ID=你的 Railway Environment ID
+WIFI_SSID=your Wi-Fi name
+WIFI_PASS=your Wi-Fi password
+RAILWAY_TOKEN=your Railway token
+RAILWAY_PROJECT_ID=your Railway project ID
+RAILWAY_SERVICE_ID=your Railway service ID
+RAILWAY_ENVIRONMENT_ID=your Railway environment ID
 ```
 
-若是開放網路，可把 `WIFI_PASS` 留空。若沒有設定 `WIFI_SSID`，韌體會判定
-Wi-Fi 登錄失敗並顯示紅色。
+For an open network, leave `WIFI_PASS` empty. If `WIFI_SSID` is not set, the firmware treats
+Wi-Fi login as failed and shows a red screen.
 
-重要：ESP32-S3 只支援 **2.4 GHz Wi-Fi**，不能連 **5 GHz Wi-Fi**。如果路由器有
-`xxx_5G` / `xxx_2G` 兩個 SSID，請在 `.env` 裡填 2.4 GHz 那個，例如 `xxx_2G`。
-連到 5 GHz SSID 會 timeout，serial monitor 可能會看到 `ESP_ERR_TIMEOUT`。
+Important: ESP32-S3 only supports **2.4 GHz Wi-Fi** and cannot connect to **5 GHz Wi-Fi**.
+If your router exposes separate `xxx_5G` / `xxx_2G` SSIDs, put the 2.4 GHz one in `.env`,
+for example `xxx_2G`. Connecting to a 5 GHz SSID will time out, and the serial monitor may show
+`ESP_ERR_TIMEOUT`.
 
 ```bash
-# 進入專案目錄
+# Enter the project directory
 cd esp32-lcd-test
 
-# 每次開新 terminal 先 source
+# Source this in every new terminal
 source ~/export-esp.sh
 
-# Build（第一次很慢，要編 ESP-IDF）
+# Build (the first build is slow because it compiles ESP-IDF)
 cargo build --release
 
-# Flash app + 開 serial monitor
-# 若 bootloader 已經在板子上，平常用這個即可
+# Flash the app and open the serial monitor
+# If the bootloader is already on the board, this is usually enough
 cargo run --release
 
-# 或分開操作，只更新 app：
+# Or do it in separate steps and update only the app:
 cargo build --release
 espflash flash --flash-mode dout --flash-freq 20mhz --flash-size 16mb \
   target/xtensa-esp32s3-espidf/release/esp32-lcd-test --monitor
 ```
 
-連線成功後 serial monitor 會顯示 `Wi-Fi connected` 與 DHCP IP 資訊，接著會立即檢查四個 endpoint，
-之後每 10 分鐘重新檢測一輪並更新 LCD：
+After connecting, the serial monitor shows `Wi-Fi connected` and the DHCP IP information.
+The firmware then immediately checks four endpoints, repeats the checks every 10 minutes,
+and updates the LCD:
 
 ```text
 https://uk-railway-journey-recorder-api.shn.hk/api/health
@@ -112,21 +114,24 @@ https://backboard.railway.com/graphql/v2
 https://syv.red/zh-TW
 ```
 
-- 第一個 endpoint 必須回傳 HTTP 200 且 body 是 `{"status":"ok"}`。
-- 第二個 endpoint 必須回傳 HTTP 200 且 response 第一行是 IP 位址。
-- 第三個 endpoint 會對 Railway GraphQL 查詢指定 service 的最新 deployment，
-  回傳 HTTP 200 且 `status` 為 `"SUCCESS"` 或 `"SLEEPING"` 才算通過。
-- 第四個 endpoint 是 Polaris，必須回傳 HTTP 200。
+- The first endpoint must return HTTP 200 with a body of `{"status":"ok"}`.
+- The second endpoint must return HTTP 200, and the first response line must be an IP address.
+- The third endpoint queries Railway GraphQL for the latest deployment of the configured service.
+  It passes only when the response is HTTP 200 and `status` is `"SUCCESS"` or `"SLEEPING"`.
+- The fourth endpoint is Polaris and must return HTTP 200.
 
-四個 health check 都成功時，LCD 才會顯示綠色狀態畫面。若 Wi-Fi 登錄失敗、沒有設定 SSID、
-任何一個 env 變數未設定、HTTPS 請求失敗、或任一 health check 不符合條件，LCD 都會顯示純紅色。
-因為 `.env` 內容會編譯進韌體，改 SSID / password / Railway 相關設定後請重新 `cargo run --release`。
+The LCD shows the green status screen only when all four health checks succeed. If Wi-Fi login
+fails, `WIFI_SSID` is missing, any required env var is missing, an HTTPS request fails, or any
+health check does not match the expected result, the LCD shows a solid red screen.
+Because `.env` values are compiled into the firmware, rerun `cargo run --release` after changing
+the SSID, password, or Railway settings.
 
-本板子的 embedded flash 使用 DIO/40 MHz 會在 ROM 階段出現
-`Invalid image block, can't boot.`。`sdkconfig.defaults` 已固定為 DOUT/20 MHz。
+This board's embedded flash fails during the ROM stage with DIO/40 MHz and shows
+`Invalid image block, can't boot.`. `sdkconfig.defaults` pins the flash configuration to
+DOUT/20 MHz.
 
-如果剛 erase flash、換板子、或再次看到 bootloader 錯誤，請先完整寫入
-bootloader、partition table 和 app：
+If you just erased flash, switched boards, or see the bootloader error again, write the bootloader,
+partition table, and app together first:
 
 ```bash
 source ~/export-esp.sh
@@ -149,62 +154,64 @@ sudo espflash flash \
 
 ---
 
-## 屏幕狀態
+## Screen States
 
-開機後屏幕狀態：
-1. **藍底 + 置中白色波斯語標題** → 開機畫面，LCD 初始化完成後立即顯示
-2. **白底 + 置中波斯語標題 + 右側綠色圓點狀態列** → Wi-Fi 登錄成功，且四個 API health check 都通過
-3. **純紅色** → Wi-Fi 或任一 API health check 失敗
+After boot, the screen states are:
 
-成功畫面上的波斯語狀態文字為預渲染 bitmap：
-1. 置中標題：`وضعیت سلامت`
-2. `راه‌آهن` + 右側綠色圓點
-3. `آی‌پی` + 右側綠色圓點
-4. `گراف‌ویز` + 右側綠色圓點
-5. `پولاریس` + 右側綠色圓點
+1. **Blue background with a centered white Persian title**: boot screen, shown immediately after LCD initialization
+2. **White background with a centered Persian title and right-side green status dots**: Wi-Fi login succeeded and all four API health checks passed
+3. **Solid red**: Wi-Fi or at least one API health check failed
 
-波斯語 bitmap 由 `tools/generate_persian_status.py` 生成。若要改文字、字型或位置，修改
-該 script 後重新生成：
+The Persian status text on the success screen is pre-rendered as bitmaps:
+
+1. Centered title: `وضعیت سلامت`
+2. `راه‌آهن` with a green dot on the right
+3. `آی‌پی` with a green dot on the right
+4. `گراف‌ویز` with a green dot on the right
+5. `پولاریس` with a green dot on the right
+
+The Persian bitmaps are generated by `tools/generate_persian_status.py`. To change the text,
+font, or positioning, edit that script and regenerate:
 
 ```bash
 python3 tools/generate_persian_status.py
 cargo fmt
 ```
 
-script 需要 Python Pillow，且 Pillow 需支援 RAQM shaping；字型預設使用
-`NotoSansArabic-Bold.ttf`。生成後會更新 `src/persian_status.rs`，並輸出預覽圖到
-`target/persian_status_preview.png`。
+The script requires Python Pillow with RAQM shaping support. The default font is
+`NotoSansArabic-Bold.ttf`. Regeneration updates `src/persian_status.rs` and writes a preview to
+`target/persian_status_preview.png`.
 
 ---
 
-## 常見問題
+## Troubleshooting
 
-### 畫面全白 / 全黑不變
-- 確認 BL（背光）已接 3V3
-- 確認 RES 接 GPIO10（不是直接接 3V3）
-- 用示波器 / 邏輯分析儀確認 GPIO12 有 SPI 時鐘
+### Screen stays all white or all black
+- Confirm BL (backlight) is connected to 3V3
+- Confirm RES is connected to GPIO10, not directly to 3V3
+- Use an oscilloscope or logic analyzer to confirm GPIO12 has the SPI clock
 
-### 顏色反轉（紅藍互換）
-- 修改 `MADCTL` 值：`0x00` 改 `0x08`（RGB/BGR bit）
+### Colors are swapped (red and blue reversed)
+- Change the `MADCTL` value from `0x00` to `0x08` (RGB/BGR bit)
 
-### 畫面上移 / 偏移
-- 部分 1.54" ST7789 模組有 row/column offset
-- 在 `set_window` 加 offset：
+### Screen is shifted or offset
+- Some 1.54" ST7789 modules have row/column offsets
+- Add an offset in `set_window`:
   ```rust
-  // 若畫面偏移 (ox, oy)，例如 ox=0, oy=80
+  // If the screen is offset by (ox, oy), for example ox=0, oy=80
   const OFFSET_X: u16 = 0;
-  const OFFSET_Y: u16 = 0;  // 先試 0，不對再改 80
+  const OFFSET_Y: u16 = 0;  // Try 0 first; if it is wrong, try 80
   ```
 
-### Build 時找不到 xtensa target
+### Build cannot find the xtensa target
 ```bash
-# 確認 toolchain 已安裝
+# Confirm the toolchain is installed
 rustup toolchain list | grep xtensa
-# 確認 source 了 export-esp.sh
+# Confirm export-esp.sh has been sourced
 echo $PATH | grep xtensa
 ```
 
-### espflash 找不到 port
+### espflash cannot find the port
 ```bash
 espflash list-ports
 espflash flash --port /dev/ttyACM0 target/.../esp32-lcd-test --monitor
