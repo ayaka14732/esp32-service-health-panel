@@ -12,24 +12,16 @@
 //   LCD BL   -> 3V3     (backlight, always on)
 
 mod health;
+mod network;
 mod persian_status;
 
 use esp_idf_hal::{
     delay::FreeRtos,
     gpio::{Gpio10, Gpio12, Gpio8, Gpio9, Output, PinDriver},
-    modem::Modem,
     prelude::*,
     spi::{
         config::{Config as SpiConfig, Mode, Phase, Polarity},
         Dma, SpiBusDriver, SpiDriver,
-    },
-};
-use esp_idf_svc::{
-    eventloop::EspSystemEventLoop,
-    nvs::EspDefaultNvsPartition,
-    sntp::{EspSntp, SyncStatus},
-    wifi::{
-        AuthMethod, BlockingWifi, ClientConfiguration, Configuration as WifiConfiguration, EspWifi,
     },
 };
 use esp_idf_sys as _; // Required to link the ESP-IDF runtime
@@ -59,8 +51,6 @@ const BLUE: u16 = 0x001F;
 const LCD_W: u16 = 240;
 const LCD_H: u16 = 240;
 
-const WIFI_SSID: Option<&str> = option_env!("WIFI_SSID");
-const WIFI_PASS: Option<&str> = option_env!("WIFI_PASS");
 const HEALTH_CHECK_INTERVAL_MS: u32 = 10 * 60 * 1000;
 
 // ───────────────────────────────────────────────
@@ -330,105 +320,6 @@ fn blend_rgb565(bg: u16, fg: u16, alpha: u8) -> u16 {
 }
 
 // ───────────────────────────────────────────────
-// Wi-Fi
-// ───────────────────────────────────────────────
-fn start_wifi(modem: Modem) -> Option<BlockingWifi<EspWifi<'static>>> {
-    let ssid = WIFI_SSID.unwrap_or("").trim();
-    let pass = WIFI_PASS.unwrap_or("");
-
-    if ssid.is_empty() {
-        log::warn!("WIFI_SSID not set; skipping Wi-Fi login");
-        return None;
-    }
-    if ssid.len() > 32 {
-        log::error!("WIFI_SSID is too long; ESP Wi-Fi SSID limit is 32 bytes");
-        return None;
-    }
-    if pass.len() > 64 {
-        log::error!("WIFI_PASS is too long; ESP Wi-Fi password limit is 64 bytes");
-        return None;
-    }
-
-    match connect_wifi(modem, ssid, pass) {
-        Ok(wifi) => Some(wifi),
-        Err(err) => {
-            log::error!("Wi-Fi login failed: {err:?}");
-            None
-        }
-    }
-}
-
-fn connect_wifi(
-    modem: Modem,
-    ssid: &str,
-    pass: &str,
-) -> Result<BlockingWifi<EspWifi<'static>>, esp_idf_sys::EspError> {
-    let sys_loop = EspSystemEventLoop::take()?;
-    let nvs = EspDefaultNvsPartition::take()?;
-
-    let mut wifi = BlockingWifi::wrap(EspWifi::new(modem, sys_loop.clone(), Some(nvs))?, sys_loop)?;
-
-    let wifi_configuration = WifiConfiguration::Client(ClientConfiguration {
-        ssid: ssid.try_into().unwrap(),
-        bssid: None,
-        auth_method: if pass.is_empty() {
-            AuthMethod::None
-        } else {
-            AuthMethod::WPA2Personal
-        },
-        password: pass.try_into().unwrap(),
-        channel: None,
-        ..Default::default()
-    });
-
-    wifi.set_configuration(&wifi_configuration)?;
-    wifi.start()?;
-    log::info!("Wi-Fi started; connecting to {ssid}");
-
-    let mut last_err = None;
-    for attempt in 1..=3 {
-        log::info!("Wi-Fi connect attempt {attempt}/3");
-        match wifi.connect().and_then(|_| wifi.wait_netif_up()) {
-            Ok(()) => {
-                let ip_info = wifi.wifi().sta_netif().get_ip_info()?;
-                log::info!("Wi-Fi connected: {:?}", ip_info);
-                return Ok(wifi);
-            }
-            Err(err) => {
-                log::warn!("Wi-Fi connect attempt {attempt}/3 failed: {err:?}");
-                last_err = Some(err);
-                let _ = wifi.disconnect();
-                FreeRtos::delay_ms(1500);
-            }
-        }
-    }
-
-    Err(last_err.unwrap())
-}
-
-fn start_sntp() -> Option<EspSntp<'static>> {
-    match EspSntp::new_default() {
-        Ok(sntp) => {
-            log::info!("SNTP started");
-            for _ in 0..20 {
-                if matches!(sntp.get_sync_status(), SyncStatus::Completed) {
-                    log::info!("SNTP time synchronized");
-                    return Some(sntp);
-                }
-                FreeRtos::delay_ms(500);
-            }
-
-            log::warn!("SNTP sync timed out; trying HTTPS health check anyway");
-            Some(sntp)
-        }
-        Err(err) => {
-            log::warn!("SNTP start failed: {err:?}; trying HTTPS health check anyway");
-            None
-        }
-    }
-}
-
-// ───────────────────────────────────────────────
 // main
 // ───────────────────────────────────────────────
 fn main() {
@@ -448,7 +339,7 @@ fn main() {
         peripherals.spi2,
         pins.gpio12,                                                  // SCLK
         pins.gpio11,                                                  // MOSI
-        None::<Gpio12>,                                               // MISO is not needed; the LCD is write-only.
+        None::<Gpio12>, // MISO is not needed; the LCD is write-only.
         &esp_idf_hal::spi::SpiDriverConfig::new().dma(Dma::Disabled), // DMA is not needed for this small display.
     )
     .unwrap();
@@ -480,16 +371,16 @@ fn main() {
     // ── Boot screen: show immediately to avoid display noise during Wi-Fi connection ──
     lcd.draw_boot_screen();
 
-    // ── Wi-Fi login ──
-    // Keep the Wi-Fi handle alive so the driver is not dropped after connection.
-    let wifi = start_wifi(modem);
-    let _sntp = if wifi.is_some() { start_sntp() } else { None };
+    // ── Network login ──
+    // Keep the network handle alive so Wi-Fi and SNTP are not dropped.
+    let network = network::init(modem);
 
     loop {
-        let railway_ok = wifi.is_some() && health::railway::ok();
-        let ipinfo_ok = wifi.is_some() && health::ipinfo::ok();
-        let graphviz_ok = wifi.is_some() && health::graphviz::ok();
-        let polaris_ok = wifi.is_some() && health::polaris::ok();
+        let online = network.is_connected();
+        let railway_ok = online && health::railway::ok();
+        let ipinfo_ok = online && health::ipinfo::ok();
+        let graphviz_ok = online && health::graphviz::ok();
+        let polaris_ok = online && health::polaris::ok();
 
         log::info!(
             "Display status: railway={railway_ok}, ipinfo={ipinfo_ok}, graphviz={graphviz_ok}, polaris={polaris_ok}"
